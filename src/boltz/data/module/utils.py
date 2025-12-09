@@ -34,21 +34,46 @@ def build_chain_masks(structure: Structure, record: Record) -> Tuple[np.ndarray,
 
     asym_id_to_chain = {int(chain["asym_id"]): chain for chain in structure.chains}
 
-    for chain in record.chains:
-        if not getattr(chain, "valid", True):
-            continue
+    chain_map = {
+        (chain.chain_name or "").upper(): chain
+        for chain in record.chains
+        if getattr(chain, "valid", True)
+    }
 
-        chain_array = asym_id_to_chain.get(int(chain.chain_id))
-        if chain_array is None:
-            continue
+    def resolve_chain(target: str):
+        key = target.upper()
+        direct = chain_map.get(key)
+        if direct is not None:
+            return direct
 
-        chain_name = (chain.chain_name or "").upper()
-        start = int(chain_array["atom_idx"])
-        end = start + int(chain_array["atom_num"])
+        preferred = chain_map.get(f"{key}1")
+        if preferred is not None:
+            return preferred
 
-        if chain_name.startswith(ALIGNMENT_PREFIXES):
-            alignment_mask[start:end] = True
-        if chain_name.startswith(RMSD_PREFIXES):
-            rmsd_mask[start:end] = True
+        matches = [
+            chain_map[name]
+            for name in chain_map
+            if name[: len(key)] == key
+        ]
+        if len(matches) == 1:
+            return matches[0]
+        return None
+
+    def mark_mask(names: tuple[str, ...], mask: np.ndarray) -> None:
+        for name in names:
+            record_chain = resolve_chain(name)
+            if record_chain is None:
+                continue
+
+            chain_array = asym_id_to_chain.get(int(record_chain.chain_id))
+            if chain_array is None:
+                continue
+
+            start = int(chain_array["atom_idx"])
+            end = start + int(chain_array["atom_num"])
+            mask[start:end] = True
+
+    mark_mask(ALIGNMENT_PREFIXES, alignment_mask)
+    mark_mask(RMSD_PREFIXES, rmsd_mask)
 
     return alignment_mask, rmsd_mask

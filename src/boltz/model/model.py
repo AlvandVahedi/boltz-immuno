@@ -451,38 +451,18 @@ class Boltz1(LightningModule):
 
         device = true_coords.device
         dtype = true_coords.dtype
-        alignment_atom_mask = alignment_atom_mask.to(device=device, dtype=dtype)
-        rmsd_atom_mask = rmsd_atom_mask.to(device=device, dtype=dtype)
-        atom_pad_mask = batch["atom_pad_mask"].to(device=device, dtype=dtype)
-        atom_resolved_mask = batch["atom_resolved_mask"].to(device=device, dtype=dtype)
-        token_to_rep_atom = batch["token_to_rep_atom"].to(device=device).float()
-
-        ca_atom_mask = torch.amax(token_to_rep_atom, dim=1)
-        ca_atom_mask = ca_atom_mask * atom_pad_mask * atom_resolved_mask
-
-        alignment_mask = alignment_atom_mask * ca_atom_mask
-        rmsd_mask = rmsd_atom_mask * ca_atom_mask
-
+        alignment_mask = alignment_atom_mask.to(device=device, dtype=dtype)
+        rmsd_mask = rmsd_atom_mask.to(device=device, dtype=dtype)
         alignment_mask = alignment_mask.repeat_interleave(diffusion_samples, dim=0)
         rmsd_mask = rmsd_mask.repeat_interleave(diffusion_samples, dim=0)
-        fallback_mask = (atom_resolved_mask * atom_pad_mask).repeat_interleave(
-            diffusion_samples, dim=0
-        )
-
-        has_alignment = alignment_mask.sum(dim=-1, keepdim=True) > 0
-        alignment_mask_for_transform = torch.where(
-            has_alignment,
-            alignment_mask,
-            fallback_mask,
-        )
-        align_weights = torch.ones_like(alignment_mask_for_transform)
+        align_weights = torch.ones_like(alignment_mask)
 
         with torch.no_grad():
             aligned_pred_coords = weighted_rigid_align(
                 pred_coords,
                 true_coords,
                 align_weights,
-                alignment_mask_for_transform,
+                alignment_mask,
             )
 
         diff = aligned_pred_coords - true_coords

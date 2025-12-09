@@ -827,12 +827,12 @@ def process_atom_features(
     )  # not sure why I need to copy here..
     ref_space_uid = from_numpy(ref_space_uid)
     coords = from_numpy(coord_data.copy())
-    resolved_mask = from_numpy(atom_data["is_present"])
+    resolved_mask = from_numpy(atom_data["is_present"]).float()
     pad_mask = torch.ones(len(atom_data), dtype=torch.float)
     alignment_atom_mask = from_numpy(alignment_atom_mask).float()
     rmsd_atom_mask = from_numpy(rmsd_atom_mask).float()
     atom_to_token = torch.tensor(atom_to_token, dtype=torch.long)
-    token_to_rep_atom = torch.tensor(token_to_rep_atom, dtype=torch.long)
+    token_to_rep_atom_idx = torch.tensor(token_to_rep_atom, dtype=torch.long)
     r_set_to_rep_atom = torch.tensor(r_set_to_rep_atom, dtype=torch.long)
     frame_data, resolved_frame_data = compute_frames_nonpolymer(
         data,
@@ -850,7 +850,12 @@ def process_atom_features(
     )  # added for lower case letters
     ref_element = one_hot(ref_element, num_classes=const.num_elements)
     atom_to_token = one_hot(atom_to_token, num_classes=token_id + 1)
-    token_to_rep_atom = one_hot(token_to_rep_atom, num_classes=len(atom_data))
+    ca_atom_mask = torch.zeros(len(atom_data), dtype=torch.float)
+    ca_atom_mask[token_to_rep_atom_idx] = 1.0
+    alignment_atom_mask = alignment_atom_mask * ca_atom_mask * resolved_mask
+    rmsd_atom_mask = rmsd_atom_mask * ca_atom_mask * resolved_mask
+
+    token_to_rep_atom = one_hot(token_to_rep_atom_idx, num_classes=len(atom_data))
     r_set_to_rep_atom = one_hot(r_set_to_rep_atom, num_classes=len(atom_data))
 
     # Center the ground truth coordinates
