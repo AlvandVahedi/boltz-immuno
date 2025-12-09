@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Optional
 
@@ -13,6 +13,7 @@ from boltz.data.feature.featurizer import BoltzFeaturizer
 from boltz.data.feature.pad import pad_to_max
 from boltz.data.feature.symmetry import get_symmetries
 from boltz.data.filter.dynamic.filter import DynamicFilter
+from boltz.data.module.utils import build_chain_masks, ensure_cyclic_period_field
 from boltz.data.sample.sampler import Sample, Sampler
 from boltz.data.tokenize.tokenizer import Tokenizer
 from boltz.data.types import MSA, Connection, Input, Manifest, Record, Structure
@@ -101,14 +102,24 @@ def load_input(record: Record, target_dir: Path, msa_dir: Path) -> Input:
     """
     # Load the structure
     structure = np.load(target_dir / "structures" / f"{record.id}.npz")
+    chains = ensure_cyclic_period_field(structure["chains"])
     structure = Structure(
         atoms=structure["atoms"],
         bonds=structure["bonds"],
         residues=structure["residues"],
-        chains=structure["chains"],
+        chains=chains,
         connections=structure["connections"].astype(Connection),
         interfaces=structure["interfaces"],
         mask=structure["mask"],
+        alignment_mask=structure["alignment_mask"]
+        if "alignment_mask" in structure
+        else None,
+        rmsd_mask=structure["rmsd_mask"] if "rmsd_mask" in structure else None,
+    )
+
+    alignment_mask, rmsd_mask = build_chain_masks(structure, record)
+    structure = replace(
+        structure, alignment_mask=alignment_mask, rmsd_mask=rmsd_mask
     )
 
     msas = {}
@@ -151,6 +162,8 @@ def collate(data: list[dict[str, Tensor]]) -> dict[str, Tensor]:
             "chain_symmetries",
             "amino_acids_symmetries",
             "ligand_symmetries",
+            "record_id",
+            "structure_path",
         ]:
             # Check if all have the same shape
             shape = values[0].shape
@@ -445,6 +458,10 @@ class ValidationDataset(torch.utils.data.Dataset):
             print(f"Featurizer failed on {record.id} with error {e}. Skipping.")
             return self.__getitem__(0)
 
+        features["record_id"] = record.id
+        features["structure_path"] = str(
+            dataset.target_dir / "structures" / f"{record.id}.npz"
+        )
         return features
 
     def __len__(self) -> int:
